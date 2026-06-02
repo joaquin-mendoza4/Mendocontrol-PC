@@ -20,12 +20,33 @@
   .power { padding: 8px; display: flex; gap: 8px; }
   .btn.danger { background: #3a2326; color: #ff9b94; }
   .btn.danger:active { background: #5a2d33; }
+
+  #opts-toggle { position: fixed; top: 6px; right: 10px; background: none; border: none; color: #6a7180; font-size: 24px; padding: 6px 10px; z-index: 30; }
+  #opts-toggle:active { color: #e6e6e6; }
+  #opts-panel { display: none; position: fixed; inset: 0; background: #161922; z-index: 40; flex-direction: column; align-items: center; justify-content: center; gap: 24px; padding: 32px; }
+  #opts-panel.open { display: flex; }
+  #opts-panel h2 { margin: 0; font-size: 18px; color: #e6e6e6; }
+  .opts-row { width: 100%; }
+  .opts-label { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; color: #a0a6b4; }
+  .opts-label span { color: #e6e6e6; font-weight: 700; }
+  input[type=range] { width: 100%; accent-color: #2f6feb; height: 6px; }
+  #opts-close { width: 100%; padding: 14px; border: none; border-radius: 10px; background: #2f6feb; color: #fff; font-size: 16px; font-weight: 700; margin-top: 8px; }
+  #opts-close:active { background: #1a5cd8; }
 </style>
 </head>
 <body>
 <div id="app">
   <div id="status" class="bad">Conectando...</div>
   <div id="pad"><div id="padhint">Desliza para mover el cursor<br>1 dedo = mover &nbsp;·&nbsp; tap = clic<br>2 dedos = scroll / clic derecho</div></div>
+  <button id="opts-toggle">⚙</button>
+  <div id="opts-panel">
+    <h2>Opciones</h2>
+    <div class="opts-row">
+      <div class="opts-label">Sensibilidad <span id="sens-val"></span></div>
+      <input type="range" id="sens-slider" min="0.5" max="5" step="0.1">
+    </div>
+    <button id="opts-close">Cerrar</button>
+  </div>
   <div class="row">
     <button class="btn" id="bL">Clic izq</button>
     <button class="btn" id="bDrag">Arrastrar</button>
@@ -42,7 +63,7 @@
   var pad = document.getElementById('pad');
   var hint = document.getElementById('padhint');
   var ws = null, connected = false;
-  var sensitivity = 1.6;
+  var sensitivity = parseFloat(localStorage.getItem('sens') || '1.6');
 
   function setStatus(txt, ok) {
     statusEl.textContent = txt;
@@ -141,6 +162,30 @@
   });
   document.getElementById('bRestart').addEventListener('click', function () {
     if (confirm('¿Reiniciar la PC?')) send({ t: 'p', a: 'r' });
+  });
+
+  // Options panel
+  var slider = document.getElementById('sens-slider');
+  var sensVal = document.getElementById('sens-val');
+  var optsPanel = document.getElementById('opts-panel');
+
+  function updateSens(v) {
+    sensitivity = v;
+    slider.value = v;
+    sensVal.textContent = v.toFixed(1);
+    localStorage.setItem('sens', v);
+  }
+  updateSens(sensitivity);
+
+  document.getElementById('opts-toggle').addEventListener('click', function (e) {
+    e.stopPropagation();
+    optsPanel.classList.add('open');
+  });
+  document.getElementById('opts-close').addEventListener('click', function () {
+    optsPanel.classList.remove('open');
+  });
+  slider.addEventListener('input', function () {
+    updateSens(parseFloat(this.value));
   });
 
   connect();
