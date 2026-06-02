@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Controlar PC</title>
+<style>
+  * { box-sizing: border-box; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; overflow: hidden; font-family: -apple-system, system-ui, Segoe UI, Roboto, sans-serif; background: #0f1115; color: #e6e6e6; }
+  #app { display: flex; flex-direction: column; height: 100%; }
+  #status { padding: 6px 10px; font-size: 13px; text-align: center; background: #1a1d24; }
+  #status.ok { color: #6ee787; }
+  #status.bad { color: #ff7b72; }
+  #pad { flex: 1; position: relative; background: #161922; touch-action: none; }
+  #padhint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #4a4f5a; font-size: 15px; pointer-events: none; text-align: center; padding: 20px; }
+  .row { display: flex; gap: 8px; padding: 8px; }
+  .btn { flex: 1; padding: 16px 8px; border: none; border-radius: 10px; background: #2a2f3a; color: #e6e6e6; font-size: 15px; font-weight: 600; }
+  .btn:active { background: #3a4150; }
+  .btn.on { background: #2f6feb; }
+  .power { padding: 8px; display: flex; gap: 8px; }
+  .btn.danger { background: #3a2326; color: #ff9b94; }
+  .btn.danger:active { background: #5a2d33; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="status" class="bad">Conectando...</div>
+  <div id="pad"><div id="padhint">Desliza para mover el cursor<br>1 dedo = mover &nbsp;·&nbsp; tap = clic<br>2 dedos = scroll / clic derecho</div></div>
+  <div class="row">
+    <button class="btn" id="bL">Clic izq</button>
+    <button class="btn" id="bDrag">Arrastrar</button>
+    <button class="btn" id="bR">Clic der</button>
+  </div>
+  <div class="power">
+    <button class="btn danger" id="bRestart">Reiniciar PC</button>
+    <button class="btn danger" id="bShutdown">Apagar PC</button>
+  </div>
+</div>
+<script>
+(function () {
+  var statusEl = document.getElementById('status');
+  var pad = document.getElementById('pad');
+  var hint = document.getElementById('padhint');
+  var ws = null, connected = false;
+  var sensitivity = 1.6;
+
+  function setStatus(txt, ok) {
+    statusEl.textContent = txt;
+    statusEl.className = ok ? 'ok' : 'bad';
+  }
+
+  function connect() {
+    ws = new WebSocket('ws://' + location.host + '/ws');
+    ws.onopen = function () { connected = true; setStatus('Conectado', true); };
+    ws.onclose = function () { connected = false; setStatus('Desconectado. Reintentando...', false); setTimeout(connect, 1000); };
+    ws.onerror = function () { try { ws.close(); } catch (e) {} };
+  }
+  function send(obj) { if (connected) { try { ws.send(JSON.stringify(obj)); } catch (e) {} } }
+
+  // Accumulated movement, flushed on animation frame for smoothness.
+  var accX = 0, accY = 0, pending = false;
+  function flush() {
+    pending = false;
+    if (accX !== 0 || accY !== 0) {
+      send({ t: 'm', x: Math.round(accX), y: Math.round(accY) });
+      accX = 0; accY = 0;
+    }
+  }
+  function queueMove(dx, dy) {
+    accX += dx * sensitivity; accY += dy * sensitivity;
+    if (!pending) { pending = true; requestAnimationFrame(flush); }
+  }
+
+  // Touch handling on the pad.
+  var startTime = 0, moved = 0;
+  var last1 = null;          // last single-finger position
+  var lastScrollY = null;    // last two-finger center Y
+  var twoFinger = false;
+
+  pad.addEventListener('touchstart', function (e) {
+    e.preventDefault();
+    hint.style.display = 'none';
+    startTime = Date.now(); moved = 0;
+    if (e.touches.length === 1) {
+      twoFinger = false;
+      last1 = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    } else if (e.touches.length === 2) {
+      twoFinger = true;
+      last1 = null;
+      lastScrollY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    }
+  }, { passive: false });
+
+  pad.addEventListener('touchmove', function (e) {
+    e.preventDefault();
+    if (e.touches.length === 1 && !twoFinger) {
+      var t = e.touches[0];
+      if (last1) {
+        var dx = t.clientX - last1.x, dy = t.clientY - last1.y;
+        moved += Math.abs(dx) + Math.abs(dy);
+        queueMove(dx, dy);
+      }
+      last1 = { x: t.clientX, y: t.clientY };
+    } else if (e.touches.length === 2) {
+      var cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      if (lastScrollY !== null) {
+        var d = cy - lastScrollY;
+        moved += Math.abs(d);
+        if (Math.abs(d) >= 1) send({ t: 's', y: Math.round(d) });
+      }
+      lastScrollY = cy;
+    }
+  }, { passive: false });
+
+  pad.addEventListener('touchend', function (e) {
+    e.preventDefault();
+    var dt = Date.now() - startTime;
+    // Quick tap with little movement = click.
+    if (dt < 250 && moved < 12) {
+      if (twoFinger || e.changedTouches.length > 1) send({ t: 'c', b: 'r' });
+      else send({ t: 'c', b: 'l' });
+    }
+    if (e.touches.length === 0) { last1 = null; lastScrollY = null; twoFinger = false; }
+  }, { passive: false });
+
+  // Buttons.
+  document.getElementById('bL').addEventListener('click', function () { send({ t: 'c', b: 'l' }); });
+  document.getElementById('bR').addEventListener('click', function () { send({ t: 'c', b: 'r' }); });
+
+  var dragging = false;
+  var bDrag = document.getElementById('bDrag');
+  bDrag.addEventListener('click', function () {
+    dragging = !dragging;
+    send({ t: 'd', s: dragging ? 1 : 0 });
+    bDrag.classList.toggle('on', dragging);
+    bDrag.textContent = dragging ? 'Soltar' : 'Arrastrar';
+  });
+
+  document.getElementById('bShutdown').addEventListener('click', function () {
+    if (confirm('¿Apagar la PC?')) send({ t: 'p', a: 's' });
+  });
+  document.getElementById('bRestart').addEventListener('click', function () {
+    if (confirm('¿Reiniciar la PC?')) send({ t: 'p', a: 'r' });
+  });
+
+  connect();
+})();
+</script>
+</body>
+</html>

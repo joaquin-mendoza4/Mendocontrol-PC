@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-Job -Name ctrl)",
+      "PowerShell(Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue)",
+      "PowerShell(Receive-Job -Name ctrl -Keep 2>&1)"
+    ]
+  }
+}
