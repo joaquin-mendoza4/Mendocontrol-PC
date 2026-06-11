@@ -260,8 +260,32 @@ function Handle-Client($client) {
     }
 }
 
+# El TCP se bindea primero: si el puerto esta ocupado (otra instancia), el
+# script muere aca y no deja un proceso zombie sosteniendo solo el UDP.
 $listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Any, $Port)
 $listener.Start()
+
+# --- Descubrimiento UDP: la app Android manda un broadcast "MENDOCONTROL?"
+# --- al puerto 8766 y este hilo le responde "MENDOCONTROL:<puerto>", con lo
+# --- que la app conoce la IP de la PC sin que el usuario la escriba.
+$udpPs = [powershell]::Create()
+[void]$udpPs.AddScript({
+    param($Port)
+    try {
+        $udp = New-Object System.Net.Sockets.UdpClient(8766)
+        while ($true) {
+            $remote = New-Object System.Net.IPEndPoint([System.Net.IPAddress]::Any, 0)
+            $data = $udp.Receive([ref]$remote)
+            $text = [System.Text.Encoding]::UTF8.GetString($data)
+            if ($text -eq 'MENDOCONTROL?') {
+                $resp = [System.Text.Encoding]::UTF8.GetBytes("MENDOCONTROL:$Port")
+                [void]$udp.Send($resp, $resp.Length, $remote)
+            }
+        }
+    } catch {}
+}).AddArgument($Port)
+[void]$udpPs.BeginInvoke()
+
 $ip = Get-LanIP
 
 Write-Host ''
@@ -283,4 +307,5 @@ try {
     }
 } finally {
     $listener.Stop()
+    try { [void]$udpPs.BeginStop($null, $null) } catch {}
 }
