@@ -35,6 +35,45 @@ public class Win32Mouse {
 }
 "@
 
+# --- Teclado y teclas multimedia via user32.dll ---
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class Win32Keys {
+    [DllImport("user32.dll")] static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+    [DllImport("user32.dll", SetLastError=true)] static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct KEYBDINPUT { public ushort wVk; public ushort wScan; public uint dwFlags; public uint time; public IntPtr dwExtraInfo; }
+    // Size 40 = layout real de INPUT en x64 (union con MOUSEINPUT incluida).
+    [StructLayout(LayoutKind.Explicit, Size = 40)]
+    public struct INPUT { [FieldOffset(0)] public uint type; [FieldOffset(8)] public KEYBDINPUT ki; }
+
+    const uint INPUT_KEYBOARD = 1;
+    const uint KEYEVENTF_KEYUP = 0x0002;
+    const uint KEYEVENTF_UNICODE = 0x0004;
+
+    // Pulsa y suelta una tecla virtual (media, Enter, Backspace, etc.).
+    public static void Tap(byte vk) {
+        keybd_event(vk, 0, 0, UIntPtr.Zero);
+        keybd_event(vk, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+    }
+
+    // Escribe texto arbitrario como eventos unicode (soporta tildes, enie, emojis).
+    public static void SendText(string text) {
+        if (string.IsNullOrEmpty(text)) return;
+        INPUT[] inputs = new INPUT[text.Length * 2];
+        for (int i = 0; i < text.Length; i++) {
+            inputs[i*2].type = INPUT_KEYBOARD;
+            inputs[i*2].ki = new KEYBDINPUT { wScan = text[i], dwFlags = KEYEVENTF_UNICODE };
+            inputs[i*2+1].type = INPUT_KEYBOARD;
+            inputs[i*2+1].ki = new KEYBDINPUT { wScan = text[i], dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP };
+        }
+        SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT)));
+    }
+}
+"@
+
 function Get-LanIP {
     try {
         $ip = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop |
@@ -86,6 +125,33 @@ function Handle-Message($json) {
         'p' {
             if ($msg.a -eq 's') { Start-Process shutdown -ArgumentList '/s','/t','0' -WindowStyle Hidden }
             elseif ($msg.a -eq 'r') { Start-Process shutdown -ArgumentList '/r','/t','0' -WindowStyle Hidden }
+        }
+        'mm' {          # multimedia
+            $vk = switch ($msg.a) {
+                'pp'   { 0xB3 }  # play/pause
+                'next' { 0xB0 }
+                'prev' { 0xB1 }
+                'vu'   { 0xAF }  # volumen +
+                'vd'   { 0xAE }  # volumen -
+                'mute' { 0xAD }
+                default { 0 }
+            }
+            if ($vk) { [Win32Keys]::Tap([byte]$vk) }
+        }
+        'kt' {          # texto del teclado del celular
+            if ($msg.v) { [Win32Keys]::SendText([string]$msg.v) }
+        }
+        'kk' {          # tecla especial, opcionalmente repetida (n backspaces)
+            $vk = switch ($msg.k) {
+                'enter' { 0x0D }
+                'back'  { 0x08 }
+                default { 0 }
+            }
+            if ($vk) {
+                $n = 1
+                if ($msg.n) { $n = [Math]::Min([int]$msg.n, 200) }
+                for ($i = 0; $i -lt $n; $i++) { [Win32Keys]::Tap([byte]$vk) }
+            }
         }
     }
 }

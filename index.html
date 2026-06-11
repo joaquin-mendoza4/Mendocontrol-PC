@@ -20,6 +20,13 @@
   .power { padding: 8px; display: flex; gap: 8px; }
   .btn.danger { background: #3a2326; color: #ff9b94; }
   .btn.danger:active { background: #5a2d33; }
+  .row.media .btn { padding: 12px 4px; font-size: 18px; }
+  #bKb { flex: 0 0 56px; font-size: 18px; }
+
+  #kb-bar { display: none; position: fixed; left: 0; right: 0; bottom: 0; gap: 8px; padding: 8px; background: #1a1d24; z-index: 20; }
+  #kb-bar.open { display: flex; }
+  #kb-input { flex: 1; min-width: 0; padding: 12px; border: 1px solid #2a2f3a; border-radius: 10px; background: #0f1115; color: #e6e6e6; font-size: 16px; -webkit-user-select: text; user-select: text; }
+  #kb-bar .btn { flex: 0 0 52px; }
 
   #opts-toggle { position: fixed; top: 6px; right: 10px; background: none; border: none; color: #6a7180; font-size: 24px; padding: 6px 10px; z-index: 30; }
   #opts-toggle:active { color: #e6e6e6; }
@@ -47,10 +54,24 @@
     </div>
     <button id="opts-close">Cerrar</button>
   </div>
+  <div class="row media">
+    <button class="btn" id="mPrev">&#9198;</button>
+    <button class="btn" id="mPlay">&#9199;</button>
+    <button class="btn" id="mNext">&#9197;</button>
+    <button class="btn" id="mMute">&#128263;</button>
+    <button class="btn" id="mVolDn">&#128265;</button>
+    <button class="btn" id="mVolUp">&#128266;</button>
+  </div>
   <div class="row">
     <button class="btn" id="bL">Clic izq</button>
     <button class="btn" id="bDrag">Arrastrar</button>
     <button class="btn" id="bR">Clic der</button>
+    <button class="btn" id="bKb">&#9000;</button>
+  </div>
+  <div id="kb-bar">
+    <input id="kb-input" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Escrib&iacute; ac&aacute;...">
+    <button class="btn" id="kb-enter">&#9166;</button>
+    <button class="btn" id="kb-close">&#10005;</button>
   </div>
   <div class="power">
     <button class="btn danger" id="bRestart">Reiniciar PC</button>
@@ -155,6 +176,48 @@
     send({ t: 'd', s: dragging ? 1 : 0 });
     bDrag.classList.toggle('on', dragging);
     bDrag.textContent = dragging ? 'Soltar' : 'Arrastrar';
+  });
+
+  // Multimedia.
+  [['mPrev','prev'],['mPlay','pp'],['mNext','next'],['mMute','mute'],['mVolDn','vd'],['mVolUp','vu']].forEach(function (p) {
+    document.getElementById(p[0]).addEventListener('click', function () { send({ t: 'mm', a: p[1] }); });
+  });
+
+  // Teclado: el input refleja lo escrito y se manda la diferencia al server,
+  // asi el autocorrector del celular tambien se replica en la PC.
+  var kbBar = document.getElementById('kb-bar');
+  var kbInput = document.getElementById('kb-input');
+  var kbPrev = '';
+
+  function kbSync() {
+    var val = kbInput.value;
+    var p = 0, m = Math.min(val.length, kbPrev.length);
+    while (p < m && val.charAt(p) === kbPrev.charAt(p)) p++;
+    var del = kbPrev.length - p;
+    var ins = val.slice(p);
+    if (del > 0) send({ t: 'kk', k: 'back', n: del });
+    if (ins) send({ t: 'kt', v: ins });
+    kbPrev = val;
+  }
+  function kbEnter() {
+    kbSync();
+    send({ t: 'kk', k: 'enter' });
+    kbInput.value = ''; kbPrev = '';
+  }
+
+  document.getElementById('bKb').addEventListener('click', function () {
+    kbBar.classList.add('open');
+    kbInput.value = ''; kbPrev = '';
+    kbInput.focus();
+  });
+  document.getElementById('kb-close').addEventListener('click', function () {
+    kbBar.classList.remove('open');
+    kbInput.blur();
+  });
+  document.getElementById('kb-enter').addEventListener('click', kbEnter);
+  kbInput.addEventListener('input', kbSync);
+  kbInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); kbEnter(); }
   });
 
   document.getElementById('bShutdown').addEventListener('click', function () {
